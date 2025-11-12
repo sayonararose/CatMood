@@ -2,7 +2,7 @@
 //  CatMoodUITests.swift
 //  CatMoodUITests
 //
-//  Created by Анастасия Савенко on 06.11.2025.
+//  Created on 06.11.2025.
 //
 
 import XCTest
