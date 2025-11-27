@@ -1,8 +1,3 @@
-//
-//  HistoryView.swift
-//  CatMood
-//
-
 import SwiftUI
 import SwiftData
 
@@ -56,12 +51,16 @@ struct HistoryView: View {
                 }
                 
                 // Сітка календаря
+                // ВИПРАВЛЕННЯ ТУТ:
+                // Ми беремо дні разом з їх індексами (enumerated),
+                // щоб кожен елемент мав унікальний ID (offset).
                 LazyVGrid(columns: columns, spacing: 15) {
-                    ForEach(daysInMonth(), id: \.self) { date in
+                    ForEach(Array(daysInMonth().enumerated()), id: \.offset) { index, date in
                         if let date = date {
                             DayCell(date: date, note: noteForDate(date))
                         } else {
-                            Text("") // Пуста клітинка для вирівнювання
+                            Text("") // Пуста клітинка
+                                .frame(width: 30, height: 30)
                         }
                     }
                 }
@@ -69,7 +68,12 @@ struct HistoryView: View {
                 
                 Spacer()
                 
-                // Тут можна додати список (List) записів знизу, якщо захочеш
+                // Легенда або список (опціонально)
+                if notes.isEmpty {
+                    Text("Поки немає записів")
+                        .foregroundColor(.gray)
+                        .font(.caption)
+                }
             }
         }
     }
@@ -94,8 +98,7 @@ struct HistoryView: View {
     }
     
     private func daysInMonth() -> [Date?] {
-        guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth),
-              let monthFirstWeek = calendar.dateInterval(of: .weekOfMonth, for: monthInterval.start) else {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: currentMonth) else {
             return []
         }
         
@@ -105,6 +108,7 @@ struct HistoryView: View {
         // Swift Calendar: Sunday = 1. Потрібно вирахувати зсув.
         let offset = firstDayWeekday - 1
         
+        // Створюємо масив, де на початку йдуть nil (пусті місця)
         var days: [Date?] = Array(repeating: nil, count: offset)
         
         for day in 1...daysInMonth {

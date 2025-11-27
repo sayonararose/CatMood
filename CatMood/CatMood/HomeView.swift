@@ -9,27 +9,37 @@ import SwiftData
 struct HomeView: View {
     // Підключаємо базу даних
     @Environment(\.modelContext) private var modelContext
-    // Завантажуємо записи
+    // Завантажуємо записи (свіжі зверху)
     @Query(sort: \MoodNote.date, order: .reverse) private var notes: [MoodNote]
 
-    @Binding var selectedTab: Int // Додаємо зв'язок з навігацією
-    @State private var selectedMood: Int? = nil
-    @State private var inputText = ""
-    @State private var editingNote: MoodNote? = nil
-    @State private var isEditSheetPresented = false
-    @FocusState private var isInputFocused: Bool
+    @Binding var selectedTab: Int // Зв'язок з навігацією
 
+    // ЛОКАЛЬНИЙ СТАН (для миттєвої реакції інтерфейсу)
+    @State private var currentMoodIndex: Int? = nil
+    @State private var inputText = ""
+    @FocusState private var isInputFocused: Bool
+    
+    // СТАН РЕДАГУВАННЯ
+    @State private var noteToEdit: MoodNote? = nil
+
+    // Знаходимо запис за сьогодні
     private var todayNote: MoodNote? {
-        notes.first { $0.date.isSameDay(as: Date()) }
+        let calendar = Calendar.current
+        return notes.first { calendar.isDate($0.date, inSameDayAs: Date()) }
     }
 
+    // Цитата дня
     private var quoteOfTheDay: String {
         let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: Date()) ?? 1
         return MoodAssets.quotes[(dayOfYear - 1) % MoodAssets.quotes.count]
     }
 
-    private var currentBigCat: String {
-        selectedMood.map { MoodAssets.cats[$0] } ?? "calm"
+    // Якого кота показувати (миттєве оновлення)
+    private var displayedBigCat: String {
+        if let index = currentMoodIndex {
+            return MoodAssets.cats[index]
+        }
+        return "calm" // Дефолтний кіт
     }
 
     var body: some View {
@@ -43,86 +53,93 @@ struct HomeView: View {
                     .foregroundColor(.white)
                     .padding(.top, 40)
 
-                Image(currentBigCat)
+                // ВЕЛИКИЙ КІТ
+                Image(displayedBigCat)
                     .resizable()
                     .scaledToFit()
                     .frame(height: 200)
                     .shadow(radius: 10)
+                    .animation(.easeInOut, value: currentMoodIndex)
 
-                MoodSelector(selectedMood: $selectedMood)
-
-                if todayNote == nil {
-                    InputField(text: $inputText, isFocused: $isInputFocused, onSave: saveNote)
-                }
+                // ВИБІР НАСТРОЮ
+                MoodSelector(selectedMood: $currentMoodIndex)
+                    .onChange(of: currentMoodIndex) { _, _ in
+                        saveOrUpdateNote()
+                    }
 
                 SectionHeader(icon: "heart.text.square.fill", text: "Твій настрій сьогодні")
 
-                if let note = todayNote {
+                // ЛОГІКА: Якщо запис є - показуємо картку, якщо ні - поле вводу
+                if let note = todayNote, !note.text.isEmpty {
                     NoteCard(
                         note: note,
-                        moodImage: moodImage(for: note.moodIndex),
-                        onEdit: { editNote(note) },
-                        onDelete: { deleteNote(note) }
+                        onEdit: {
+                            // Відкриваємо вікно редагування
+                            noteToEdit = note
+                        },
+                        onDelete: {
+                            deleteNote(note)
+                        }
                     )
                     .padding(.horizontal)
                 } else {
-                    Text("Тут з'явиться твій запис...")
-                        .foregroundColor(.gray)
-                        .padding()
+                    InputField(text: $inputText, isFocused: $isInputFocused) {
+                        saveOrUpdateNote()
+                    }
                 }
 
                 QuoteSection(quote: quoteOfTheDay)
 
                 Spacer()
-                
-                // Навігація тепер передається з батьківського View, тому тут її прибираємо,
-                // або залишаємо як декорацію, але краще прибрати, щоб не дублювати.
             }
         }
-        .sheet(isPresented: $isEditSheetPresented) {
-            if let note = editingNote {
-                EditNoteSheet(note: note)
-            }
-        }
+        // Завантажуємо дані при старті
         .onAppear {
             if let existingNote = todayNote {
-                selectedMood = existingNote.moodIndex
+                currentMoodIndex = existingNote.moodIndex
+                inputText = existingNote.text
             }
+        }
+        // Вікно редагування
+        .sheet(item: $noteToEdit) { note in
+            EditNoteSheet(note: note)
+                .presentationBackground(.black)
+                .onDisappear {
+                    // ВАЖЛИВО: Оновлюємо головний екран після закриття редагування
+                    currentMoodIndex = note.moodIndex
+                    inputText = note.text
+                }
         }
     }
 
-    private func moodImage(for index: Int?) -> String {
-        index.map { MoodAssets.cats[$0] } ?? "calm_cat"
-    }
+    // --- ФУНКЦІЇ ---
 
-    private func saveNote() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-
-        let newNote = MoodNote(moodIndex: selectedMood, text: text)
-        modelContext.insert(newNote)
-        
-        inputText = ""
-        isInputFocused = false
-    }
-
-    private func editNote(_ note: MoodNote) {
-        editingNote = note
-        isEditSheetPresented = true
+    private func saveOrUpdateNote() {
+        if let existingNote = todayNote {
+            existingNote.moodIndex = currentMoodIndex
+            if !inputText.isEmpty { existingNote.text = inputText }
+            existingNote.date = Date()
+        } else {
+            let newNote = MoodNote(moodIndex: currentMoodIndex, text: inputText)
+            modelContext.insert(newNote)
+        }
     }
 
     private func deleteNote(_ note: MoodNote) {
         modelContext.delete(note)
-        selectedMood = nil
+        currentMoodIndex = nil
+        inputText = ""
     }
 }
+
+// --- КОМПОНЕНТИ ---
 
 struct MoodSelector: View {
     @Binding var selectedMood: Int?
 
     var body: some View {
         HStack(spacing: 20) {
-            ForEach(0..<MoodAssets.cats.count, id: \.self) { index in
+            ForEach(0..<MoodAssets.catsSmall.count, id: \.self) { index in
                 let isSelected = selectedMood == index
                 Image(isSelected ? MoodAssets.catsPressed[index] : MoodAssets.catsSmall[index])
                     .resizable()
@@ -137,6 +154,7 @@ struct MoodSelector: View {
                     }
             }
         }
+        .padding(.vertical)
     }
 }
 
@@ -159,9 +177,9 @@ struct InputField: View {
             Button {
                 onSave()
             } label: {
-                Image(systemName: "square.and.pencil")
-                    .foregroundColor(.white)
-                    .font(.title3)
+                Image(systemName: "arrow.up.circle.fill")
+                    .foregroundColor(.yellow)
+                    .font(.title)
             }
         }
         .padding(.horizontal)
@@ -188,32 +206,46 @@ struct QuoteSection: View {
     let quote: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .center, spacing: 4) {
             Text("Цитата дня:")
+                .font(.caption)
                 .foregroundColor(.gray)
             Text(quote)
-                .foregroundColor(.white)
+                .font(.body)
+                .italic()
+                .foregroundColor(.white.opacity(0.8))
+                .multilineTextAlignment(.center)
         }
         .padding(.horizontal)
+        .padding(.top, 10)
     }
 }
 
+// ВИПРАВЛЕНА КАРТКА (сама визначає картинку)
 struct NoteCard: View {
     let note: MoodNote
-    let moodImage: String
+    // Ми прибрали moodImage, щоб картка сама брала актуальні дані з note
     let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(moodImage)
+        HStack(alignment: .top) {
+            if let idx = note.moodIndex {
+                Image(MoodAssets.catsSmall[idx])
                     .resizable()
                     .scaledToFit()
                     .frame(width: 40, height: 40)
+            }
 
-                Spacer()
+            VStack(alignment: .leading) {
+                Text(note.text)
+                    .foregroundColor(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
+            Spacer()
+
+            VStack(spacing: 15) {
                 Button(action: onEdit) {
                     Image(systemName: "pencil")
                         .foregroundColor(.white)
@@ -223,10 +255,6 @@ struct NoteCard: View {
                         .foregroundColor(.red)
                 }
             }
-
-            Text(note.text)
-                .foregroundColor(.white)
-                .padding(.top, 4)
         }
         .padding()
         .background(Color.yellow.opacity(0.15))
@@ -234,6 +262,7 @@ struct NoteCard: View {
     }
 }
 
+// ВІКНО РЕДАГУВАННЯ
 struct EditNoteSheet: View {
     @Bindable var note: MoodNote
     @Environment(\.dismiss) private var dismiss
@@ -272,27 +301,20 @@ struct MoodEditSelector: View {
     @Binding var selectedMood: Int?
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text("Настрій:")
-                .foregroundColor(.gray)
-                .font(.subheadline)
-            
-            HStack(spacing: 16) {
-                ForEach(0..<MoodAssets.catsSmall.count, id: \.self) { index in
-                    let isSelected = selectedMood == index
-                    
-                    Image(isSelected ? MoodAssets.catsPressed[index] : MoodAssets.catsSmall[index])
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 50, height: 50)
-                        .scaleEffect(isSelected ? 1.2 : 1.0)
-                        .shadow(color: isSelected ? .yellow.opacity(0.5) : .clear, radius: 6)
-                        .onTapGesture {
-                            withAnimation(.spring()) {
-                                selectedMood = index
-                            }
+        HStack(spacing: 16) {
+            ForEach(0..<MoodAssets.catsSmall.count, id: \.self) { index in
+                let isSelected = selectedMood == index
+                Image(isSelected ? MoodAssets.catsPressed[index] : MoodAssets.catsSmall[index])
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 50, height: 50)
+                    .scaleEffect(isSelected ? 1.2 : 1.0)
+                    .shadow(color: isSelected ? .yellow.opacity(0.5) : .clear, radius: 6)
+                    .onTapGesture {
+                        withAnimation(.spring()) {
+                            selectedMood = index
                         }
-                }
+                    }
             }
         }
         .padding()
@@ -312,7 +334,7 @@ struct TextEditSection: View {
                 .foregroundColor(.gray)
                 .font(.subheadline)
             
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 Color.white.opacity(0.1)
                     .cornerRadius(12)
                 
@@ -321,14 +343,6 @@ struct TextEditSection: View {
                     .foregroundColor(.white)
                     .focused(isFocused)
                     .scrollContentBackground(.hidden)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Готово") {
-                                isFocused.wrappedValue = false
-                            }
-                        }
-                    }
             }
             .frame(minHeight: 150)
         }
@@ -343,18 +357,16 @@ struct ActionButtons: View {
     var body: some View {
         HStack(spacing: 16) {
             Button("Скасувати", action: onCancel)
-                .font(.headline)
                 .foregroundColor(.gray)
-                .frame(maxWidth: .infinity)
                 .padding()
+                .frame(maxWidth: .infinity)
                 .background(Color.white.opacity(0.1))
                 .cornerRadius(12)
             
             Button("Зберегти", action: onSave)
-                .font(.headline)
                 .foregroundColor(.black)
-                .frame(maxWidth: .infinity)
                 .padding()
+                .frame(maxWidth: .infinity)
                 .background(Color.yellow)
                 .cornerRadius(12)
         }
