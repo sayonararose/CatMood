@@ -69,7 +69,7 @@ struct HomeView: View {
 
                 SectionHeader(icon: "heart.text.square.fill", text: "Твій настрій сьогодні")
 
-                // ЛОГІКА: Якщо запис є - показуємо картку, якщо ні - поле вводу
+                // Якщо запис є - показуємо картку, якщо ні - поле вводу
                 if let note = todayNote, !note.text.isEmpty {
                     NoteCard(
                         note: note,
@@ -105,7 +105,7 @@ struct HomeView: View {
             EditNoteSheet(note: note)
                 .presentationBackground(.black)
                 .onDisappear {
-                    // ВАЖЛИВО: Оновлюємо головний екран після закриття редагування
+                    // Оновлюємо головний екран після закриття редагування
                     currentMoodIndex = note.moodIndex
                     inputText = note.text
                 }
@@ -224,7 +224,6 @@ struct QuoteSection: View {
 // ВИПРАВЛЕНА КАРТКА (сама визначає картинку)
 struct NoteCard: View {
     let note: MoodNote
-    // Ми прибрали moodImage, щоб картка сама брала актуальні дані з note
     let onEdit: () -> Void
     let onDelete: () -> Void
 

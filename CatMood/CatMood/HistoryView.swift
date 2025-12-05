@@ -51,7 +51,6 @@ struct HistoryView: View {
                 }
                 
                 // Сітка календаря
-                // ВИПРАВЛЕННЯ ТУТ:
                 // Ми беремо дні разом з їх індексами (enumerated),
                 // щоб кожен елемент мав унікальний ID (offset).
                 LazyVGrid(columns: columns, spacing: 15) {
@@ -68,7 +67,7 @@ struct HistoryView: View {
                 
                 Spacer()
                 
-                // Легенда або список (опціонально)
+                // Легенда або список
                 if notes.isEmpty {
                     Text("Поки немає записів")
                         .foregroundColor(.gray)
@@ -77,8 +76,6 @@ struct HistoryView: View {
             }
         }
     }
-    
-    // MARK: - Helpers
     
     private func noteForDate(_ date: Date) -> MoodNote? {
         notes.first { calendar.isDate($0.date, inSameDayAs: date) }

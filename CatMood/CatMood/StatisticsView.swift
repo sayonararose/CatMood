@@ -5,7 +5,7 @@
 
 import SwiftUI
 import SwiftData
-import Charts // Якщо у тебе iOS 16+, це спрацює. Якщо ні - напиши, зроблю простіше.
+import Charts 
 
 struct StatisticsView: View {
     @Query private var notes: [MoodNote]
