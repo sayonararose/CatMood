@@ -3,11 +3,17 @@ import SwiftData
 
 struct HistoryView: View {
     @Query(sort: \MoodNote.date, order: .reverse) private var notes: [MoodNote]
-    
+    @Environment(\.modelContext) private var modelContext
+
     // Календарна логіка
     @State private var currentMonth: Date = Date()
     private let calendar = Calendar.current
     private let columns = Array(repeating: GridItem(.flexible()), count: 7) // 7 днів у тижні
+
+    // Стан для інтерактивності
+    @State private var selectedNote: MoodNote? = nil
+    @State private var noteToEdit: MoodNote? = nil
+    @State private var noteToDelete: MoodNote? = nil
 
     var body: some View {
         ZStack {
@@ -56,7 +62,11 @@ struct HistoryView: View {
                 LazyVGrid(columns: columns, spacing: 15) {
                     ForEach(Array(daysInMonth().enumerated()), id: \.offset) { index, date in
                         if let date = date {
-                            DayCell(date: date, note: noteForDate(date))
+                            DayCell(date: date, note: noteForDate(date)) {
+                                if let note = noteForDate(date) {
+                                    selectedNote = note
+                                }
+                            }
                         } else {
                             Text("") // Пуста клітинка
                                 .frame(width: 30, height: 30)
@@ -74,6 +84,42 @@ struct HistoryView: View {
                         .font(.caption)
                 }
             }
+        }
+        // Лист деталей нотатки
+        .sheet(item: $selectedNote) { note in
+            NoteDetailSheet(
+                note: note,
+                onEdit: {
+                    selectedNote = nil
+                    noteToEdit = note
+                },
+                onDelete: {
+                    selectedNote = nil
+                    noteToDelete = note
+                }
+            )
+        }
+        // Вікно редагування
+        .sheet(item: $noteToEdit) { note in
+            EditNoteSheet(note: note)
+                .presentationBackground(.black)
+        }
+        // Підтвердження видалення
+        .alert("Видалити запис?", isPresented: Binding(
+            get: { noteToDelete != nil },
+            set: { if !$0 { noteToDelete = nil } }
+        )) {
+            Button("Скасувати", role: .cancel) {
+                noteToDelete = nil
+            }
+            Button("Видалити", role: .destructive) {
+                if let note = noteToDelete {
+                    modelContext.delete(note)
+                    noteToDelete = nil
+                }
+            }
+        } message: {
+            Text("Ви впевнені, що хочете видалити цей запис?")
         }
     }
     
@@ -121,7 +167,8 @@ struct HistoryView: View {
 struct DayCell: View {
     let date: Date
     let note: MoodNote?
-    
+    let onTap: () -> Void
+
     var body: some View {
         VStack {
             if let note = note, let index = note.moodIndex {
@@ -130,6 +177,10 @@ struct DayCell: View {
                     .resizable()
                     .scaledToFit()
                     .frame(width: 30, height: 30)
+                    .onTapGesture {
+                        HapticManager.shared.light()
+                        onTap()
+                    }
             } else {
                 // Якщо немає - просто число
                 Text("\(Calendar.current.component(.day, from: date))")
@@ -141,3 +192,101 @@ struct DayCell: View {
         }
     }
 }
+
+// КОМПОНЕНТ: Деталі нотатки
+struct NoteDetailSheet: View {
+    let note: MoodNote
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                VStack(spacing: 24) {
+                    // Іконка настрою
+                    if let index = note.moodIndex {
+                        Image(MoodAssets.catsSmall[index])
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 80, height: 80)
+                            .padding(.top, 20)
+                    }
+
+                    // Дата
+                    Text(formattedDate(note.date))
+                        .font(.headline)
+                        .foregroundColor(.yellow)
+
+                    // Текст нотатки
+                    ScrollView {
+                        if note.text.isEmpty {
+                            Text("Опис настрою не заповнений")
+                                .foregroundColor(.gray)
+                                .italic()
+                                .padding()
+                        } else {
+                            Text(note.text)
+                                .foregroundColor(.white)
+                                .padding()
+                        }
+                    }
+                    .frame(maxHeight: 300)
+                    .background(Color.white.opacity(0.05))
+                    .cornerRadius(12)
+                    .padding(.horizontal)
+
+                    Spacer()
+
+                    // Кнопки дій
+                    HStack(spacing: 16) {
+                        Button {
+                            onEdit()
+                            dismiss()
+                        } label: {
+                            Label("Редагувати", systemImage: "pencil")
+                                .foregroundColor(.black)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.yellow)
+                                .cornerRadius(12)
+                        }
+
+                        Button {
+                            HapticManager.shared.warning()
+                            onDelete()
+                            dismiss()
+                        } label: {
+                            Label("Видалити", systemImage: "trash")
+                                .foregroundColor(.white)
+                                .padding()
+                                .frame(maxWidth: .infinity)
+                                .background(Color.red.opacity(0.8))
+                                .cornerRadius(12)
+                        }
+                    }
+                    .padding(.horizontal)
+                    .padding(.bottom, 20)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Закрити") {
+                        dismiss()
+                    }
+                    .foregroundColor(.yellow)
+                }
+            }
+        }
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "uk_UA")
+        formatter.dateFormat = "d MMMM yyyy"
+        return "День настрою: \(formatter.string(from: date))"
+    }
+}
+

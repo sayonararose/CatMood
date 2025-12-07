@@ -9,6 +9,62 @@ enum MoodAssets {
     static let cats = ["sad", "angry", "calm", "happy", "tired"]
     static let catsSmall = ["sad_cat", "angry_cat", "calm_cat", "happy_cat", "tired_cat"]
     static let catsPressed = ["yellow_sad_cat", "yellow_angry_cat", "yellow_calm_cat", "yellow_happy_cat", "yellow_tired_cat"]
+    static let moodNames = ["Сумний", "Злий", "Спокійний", "Щасливий", "Втомлений"]
+    static let moodPrompts: [[String]] = [
+        // Індекс 0: Сумний
+        [
+            "Що викликало цей настрій?",
+            "Що могло б тебе підтримати зараз?",
+            "Які думки турбують найбільше?",
+            "Чи є хтось, з ким ти міг би поговорити?"
+        ],
+        // Індекс 1: Злий
+        [
+            "Що тебе розчарувало сьогодні?",
+            "Як би ти хотів вирішити це?",
+            "Що допомогло б тобі заспокоїтися?",
+            "Чи можна щось змінити в цій ситуації?"
+        ],
+        // Індекс 2: Спокійний
+        [
+            "Що допомогло відчути спокій?",
+            "Які приємні моменти були сьогодні?",
+            "Що тобі вдалося добре?",
+            "За що ти вдячний сьогодні?"
+        ],
+        // Індекс 3: Щасливий
+        [
+            "Що робить тебе щасливим?",
+            "Які позитивні моменти були сьогодні?",
+            "Чим би ти хотів поділитися?",
+            "Що змусило тебе посміхнутися?"
+        ],
+        // Індекс 4: Втомлений
+        [
+            "Що виснажило тебе сьогодні?",
+            "Скільки часу ти відпочив?",
+            "Що допомогло б відновити сили?",
+            "Чи можеш ти дозволити собі відпочинок?"
+        ]
+    ]
+
+    static func getPrompt(for moodIndex: Int?, date: Date = Date()) -> String {
+        guard let index = moodIndex,
+              index >= 0,
+              index < moodPrompts.count else {
+            return "Напишіть про свій настрій..."
+        }
+
+        let prompts = moodPrompts[index]
+        guard !prompts.isEmpty else {
+            return "Напишіть про свій настрій..."
+        }
+
+        let dayOfYear = Calendar.current.ordinality(of: .day, in: .year, for: date) ?? 1
+        let promptIndex = (dayOfYear - 1) % prompts.count
+        return prompts[promptIndex]
+    }
+
     static let quotes = [
         "Варто тільки повірити, що ви можете — і ви вже на півдорозі до цілі",
         "Все приходить до того, хто вміє чекати.",

@@ -35,11 +35,11 @@ struct HomeView: View {
     }
 
     // Якого кота показувати (миттєве оновлення)
-    private var displayedBigCat: String {
+    private var displayedBigCat: String? {
         if let index = currentMoodIndex {
             return MoodAssets.cats[index]
         }
-        return "calm" // Дефолтний кіт
+        return nil // Показуємо порожній стан
     }
 
     var body: some View {
@@ -53,13 +53,22 @@ struct HomeView: View {
                     .foregroundColor(.white)
                     .padding(.top, 40)
 
-                // ВЕЛИКИЙ КІТ
-                Image(displayedBigCat)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 200)
-                    .shadow(radius: 10)
-                    .animation(.easeInOut, value: currentMoodIndex)
+                // ВЕЛИКИЙ КІТ або ПОРОЖНІЙ СТАН
+                if let catImage = displayedBigCat {
+                    Image(catImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 200)
+                        .shadow(radius: 10)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.8).combined(with: .opacity),
+                            removal: .scale(scale: 1.2).combined(with: .opacity)
+                        ))
+                        .id(currentMoodIndex)
+                        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: currentMoodIndex)
+                } else {
+                    EmptyMoodState()
+                }
 
                 // ВИБІР НАСТРОЮ
                 MoodSelector(selectedMood: $currentMoodIndex)
@@ -83,7 +92,7 @@ struct HomeView: View {
                     )
                     .padding(.horizontal)
                 } else {
-                    InputField(text: $inputText, isFocused: $isInputFocused) {
+                    InputField(text: $inputText, isFocused: $isInputFocused, currentMood: currentMoodIndex) {
                         saveOrUpdateNote()
                     }
                 }
@@ -126,13 +135,48 @@ struct HomeView: View {
     }
 
     private func deleteNote(_ note: MoodNote) {
-        modelContext.delete(note)
-        currentMoodIndex = nil
-        inputText = ""
+        HapticManager.shared.warning()
+
+        withAnimation {
+            modelContext.delete(note)
+            currentMoodIndex = nil
+            inputText = ""
+        }
     }
 }
 
 // --- КОМПОНЕНТИ ---
+
+struct EmptyMoodState: View {
+    @State private var isPulsing = false
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "questionmark.circle")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 80, height: 80)
+                .foregroundColor(.yellow.opacity(isPulsing ? 0.5 : 1.0))
+                .scaleEffect(isPulsing ? 0.9 : 1.0)
+                .onAppear {
+                    guard !reduceMotion else { return }
+
+                    withAnimation(
+                        .easeInOut(duration: 1.5)
+                        .repeatForever(autoreverses: true)
+                    ) {
+                        isPulsing = true
+                    }
+                }
+
+            Text("Оберіть свій настрій сьогодні")
+                .font(.subheadline)
+                .foregroundColor(.white.opacity(0.7))
+        }
+        .frame(height: 200)
+    }
+}
 
 struct MoodSelector: View {
     @Binding var selectedMood: Int?
@@ -141,17 +185,27 @@ struct MoodSelector: View {
         HStack(spacing: 20) {
             ForEach(0..<MoodAssets.catsSmall.count, id: \.self) { index in
                 let isSelected = selectedMood == index
-                Image(isSelected ? MoodAssets.catsPressed[index] : MoodAssets.catsSmall[index])
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 55, height: 55)
-                    .scaleEffect(isSelected ? 1.25 : 1.0)
-                    .shadow(color: isSelected ? .yellow.opacity(0.5) : .clear, radius: 8)
-                    .onTapGesture {
-                        withAnimation(.spring()) {
-                            selectedMood = index
+                VStack(spacing: 4) {
+                    Image(isSelected ? MoodAssets.catsPressed[index] : MoodAssets.catsSmall[index])
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 50, height: 50)
+                        .scaleEffect(isSelected ? 1.25 : 1.0)
+                        .shadow(color: isSelected ? .yellow.opacity(0.5) : .clear, radius: 8)
+                        .onTapGesture {
+                            HapticManager.shared.light()
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                selectedMood = index
+                            }
                         }
-                    }
+
+                    Text(MoodAssets.moodNames[index])
+                        .font(.system(size: 10))
+                        .foregroundColor(isSelected ? .yellow : .white.opacity(0.7))
+                        .lineLimit(2)
+                        .frame(width: 50)
+                        .multilineTextAlignment(.center)
+                }
             }
         }
         .padding(.vertical)
@@ -161,11 +215,13 @@ struct MoodSelector: View {
 struct InputField: View {
     @Binding var text: String
     var isFocused: FocusState<Bool>.Binding
+    let currentMood: Int?
     let onSave: () -> Void
+    @State private var isSaving = false
 
     var body: some View {
         HStack {
-            TextField("Напишіть про свій настрій...", text: $text)
+            TextField(MoodAssets.getPrompt(for: currentMood), text: $text)
                 .padding(12)
                 .background(Color.white.opacity(0.1))
                 .cornerRadius(12)
@@ -175,12 +231,21 @@ struct InputField: View {
                 .onSubmit(onSave)
 
             Button {
+                HapticManager.shared.medium()
+
+                isSaving = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    isSaving = false
+                }
+
                 onSave()
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .foregroundColor(.yellow)
                     .font(.title)
             }
+            .scaleEffect(isSaving ? 1.2 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.5), value: isSaving)
         }
         .padding(.horizontal)
     }
@@ -280,8 +345,8 @@ struct EditNoteSheet: View {
                         .padding(.top, 20)
                     
                     MoodEditSelector(selectedMood: $note.moodIndex)
-                    
-                    TextEditSection(text: $note.text, isFocused: $isFocused)
+
+                    TextEditSection(text: $note.text, isFocused: $isFocused, moodIndex: note.moodIndex)
                     
                     Spacer()
                     
@@ -303,17 +368,27 @@ struct MoodEditSelector: View {
         HStack(spacing: 16) {
             ForEach(0..<MoodAssets.catsSmall.count, id: \.self) { index in
                 let isSelected = selectedMood == index
-                Image(isSelected ? MoodAssets.catsPressed[index] : MoodAssets.catsSmall[index])
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 50, height: 50)
-                    .scaleEffect(isSelected ? 1.2 : 1.0)
-                    .shadow(color: isSelected ? .yellow.opacity(0.5) : .clear, radius: 6)
-                    .onTapGesture {
-                        withAnimation(.spring()) {
-                            selectedMood = index
+                VStack(spacing: 4) {
+                    Image(isSelected ? MoodAssets.catsPressed[index] : MoodAssets.catsSmall[index])
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 50, height: 50)
+                        .scaleEffect(isSelected ? 1.2 : 1.0)
+                        .shadow(color: isSelected ? .yellow.opacity(0.5) : .clear, radius: 6)
+                        .onTapGesture {
+                            HapticManager.shared.light()
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                                selectedMood = index
+                            }
                         }
-                    }
+
+                    Text(MoodAssets.moodNames[index])
+                        .font(.system(size: 10))
+                        .foregroundColor(isSelected ? .yellow : .white.opacity(0.7))
+                        .lineLimit(2)
+                        .frame(width: 50)
+                        .multilineTextAlignment(.center)
+                }
             }
         }
         .padding()
@@ -326,17 +401,29 @@ struct MoodEditSelector: View {
 struct TextEditSection: View {
     @Binding var text: String
     var isFocused: FocusState<Bool>.Binding
+    let moodIndex: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Опис:")
-                .foregroundColor(.gray)
-                .font(.subheadline)
-            
+            HStack {
+                Text("Опис:")
+                    .foregroundColor(.gray)
+                    .font(.subheadline)
+
+                Spacer()
+
+                if moodIndex != nil {
+                    Text(MoodAssets.getPrompt(for: moodIndex))
+                        .font(.caption)
+                        .foregroundColor(.yellow.opacity(0.6))
+                        .italic()
+                }
+            }
+
             ZStack(alignment: .topLeading) {
                 Color.white.opacity(0.1)
                     .cornerRadius(12)
-                
+
                 TextEditor(text: $text)
                     .padding(10)
                     .foregroundColor(.white)
@@ -355,19 +442,25 @@ struct ActionButtons: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Button("Скасувати", action: onCancel)
-                .foregroundColor(.gray)
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color.white.opacity(0.1))
-                .cornerRadius(12)
-            
-            Button("Зберегти", action: onSave)
-                .foregroundColor(.black)
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color.yellow)
-                .cornerRadius(12)
+            Button("Скасувати") {
+                HapticManager.shared.light()
+                onCancel()
+            }
+            .foregroundColor(.gray)
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(Color.white.opacity(0.1))
+            .cornerRadius(12)
+
+            Button("Зберегти") {
+                HapticManager.shared.success()
+                onSave()
+            }
+            .foregroundColor(.black)
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(Color.yellow)
+            .cornerRadius(12)
         }
         .padding(.horizontal)
         .padding(.bottom, 20)
